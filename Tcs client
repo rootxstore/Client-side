@@ -1,0 +1,1256 @@
+local Players = game:GetService("Players")
+local RunService = game:GetService("RunService")
+local Workspace = game:GetService("Workspace")
+local Lighting = game:GetService("Lighting")
+local UserInputService = game:GetService("UserInputService")
+local VirtualInputManager = game:GetService("VirtualInputManager")
+local TweenService = game:GetService("TweenService")
+
+local LocalPlayer = Players.LocalPlayer
+local PlayerGui = LocalPlayer:WaitForChild("PlayerGui")
+
+---------------------------------------------------------
+-- VARIÁVEIS DE CONTROLE DE TAMANHO E VISUALIZADOR
+---------------------------------------------------------
+local AutoBallEnabled = false
+local AutoBallModeIndex = 1
+local AutoBallModes = {"Normal", "Predict", "Frente", "Atras"}
+
+-- Modos de Movimentação
+local MovementModes = {"Normal", "Suave", "Fluida"}
+local MovementModeIndex = 1
+local CurrentMoveVector = Vector3.new(0, 0, 0)
+local wasControlling = false -- Variável de controle para devolver o movimento nativo (WASD)
+
+-- Novas Variáveis: Interferência do Analógico e Studs da Bola
+local AnalogInterference = 50 -- Porcentagem de 1 a 100%
+local StudsBallDistance = 2.5 -- Distância em studs para o Auto Ball
+
+local ReachBallEnabled = false
+local ReachEnabled = false
+local EnemyReachEnabled = false
+
+local ZoneVisualMode = "3D"
+
+local ReachBallSize = Vector3.new(60, 5, 60)
+local ReachSize = Vector3.new(15, 5, 15)
+local EnemyReachSize = Vector3.new(15, 5, 15)
+
+local ReachColor = Color3.fromRGB(0, 255, 255)
+local CurrentBall = nil
+
+local VirtualAnalogEnabled = false
+local EspBallEnabled = false
+local AutoSwagEnabled = false
+local BallPredictEnabled = false
+local VirtualJumpEnabled = false
+
+local LastSwagTime = 0
+local CurrentTrackedFoot = "RIGHT"
+
+---------------------------------------------------------
+-- TELA DE CARREGAMENTO (LOADING SCREEN - TCS)
+---------------------------------------------------------
+local ScreenGui = Instance.new("ScreenGui")
+ScreenGui.Name = "tcs"
+ScreenGui.ResetOnSpawn = false
+ScreenGui.Parent = PlayerGui
+
+local LoadingFrame = Instance.new("Frame")
+LoadingFrame.Name = "LoadingFrame"
+LoadingFrame.Size = UDim2.new(1, 0, 1, 0)
+LoadingFrame.BackgroundColor3 = Color3.fromRGB(15, 15, 20)
+LoadingFrame.ZIndex = 100
+LoadingFrame.Parent = ScreenGui
+
+local LoadingTitle = Instance.new("TextLabel")
+LoadingTitle.Size = UDim2.new(1, 0, 0, 50)
+LoadingTitle.Position = UDim2.new(0, 0, 0.38, 0)
+LoadingTitle.BackgroundTransparency = 1
+LoadingTitle.Text = "TCS CLIENT-SIDE"
+LoadingTitle.TextColor3 = Color3.fromRGB(0, 200, 255)
+LoadingTitle.Font = Enum.Font.GothamBold
+LoadingTitle.TextSize = 32
+LoadingTitle.ZIndex = 101
+LoadingTitle.Parent = LoadingFrame
+
+local LoadingStatus = Instance.new("TextLabel")
+LoadingStatus.Size = UDim2.new(1, 0, 0, 25)
+LoadingStatus.Position = UDim2.new(0, 0, 0.46, 0)
+LoadingStatus.BackgroundTransparency = 1
+LoadingStatus.Text = "Carregando Módulos e Recursos..."
+LoadingStatus.TextColor3 = Color3.fromRGB(180, 180, 180)
+LoadingStatus.Font = Enum.Font.SourceSans
+LoadingStatus.TextSize = 16
+LoadingStatus.ZIndex = 101
+LoadingStatus.Parent = LoadingFrame
+
+local BarBackground = Instance.new("Frame")
+BarBackground.Size = UDim2.new(0, 320, 0, 12)
+BarBackground.Position = UDim2.new(0.5, -160, 0.53, 0)
+BarBackground.BackgroundColor3 = Color3.fromRGB(35, 35, 45)
+BarBackground.BorderSizePixel = 0
+BarBackground.ZIndex = 101
+BarBackground.Parent = LoadingFrame
+Instance.new("UICorner", BarBackground).CornerRadius = UDim.new(1, 0)
+
+local BarFill = Instance.new("Frame")
+BarFill.Size = UDim2.new(0, 0, 1, 0)
+BarFill.BackgroundColor3 = Color3.fromRGB(0, 200, 255)
+BarFill.BorderSizePixel = 0
+BarFill.ZIndex = 102
+BarFill.Parent = BarBackground
+Instance.new("UICorner", BarFill).CornerRadius = UDim.new(1, 0)
+
+---------------------------------------------------------
+-- INSTÂNCIAS DA BOLA E HITBOX
+---------------------------------------------------------
+local ZonePart = Instance.new("Part")
+ZonePart.Name = "ReachBallZonePart"
+ZonePart.Anchored = true
+ZonePart.CanCollide = false
+ZonePart.Transparency = 1
+
+local ZoneBox = Instance.new("SelectionBox")
+ZoneBox.Name = "ZoneBoxVisual"
+ZoneBox.Color3 = Color3.fromRGB(255, 0, 0)
+ZoneBox.SurfaceColor3 = Color3.fromRGB(255, 0, 0)
+ZoneBox.SurfaceTransparency = 0.85
+ZoneBox.LineThickness = 0.08
+ZoneBox.Adornee = ZonePart
+ZoneBox.Parent = Workspace
+
+local CustomHitbox = Instance.new("Part")
+CustomHitbox.Name = "BallReachHitbox"
+CustomHitbox.Anchored = true
+CustomHitbox.CanCollide = false
+CustomHitbox.Massless = true
+CustomHitbox.Transparency = 1
+
+local HitboxBox = Instance.new("SelectionBox")
+HitboxBox.Name = "ReachHitboxVisual"
+HitboxBox.LineThickness = 0.05
+HitboxBox.SurfaceTransparency = 0.7
+HitboxBox.Adornee = CustomHitbox
+HitboxBox.Parent = Workspace
+
+---------------------------------------------------------
+-- ESP (NOME, DESTAQUE E ESPAÇO DA BOLA)
+---------------------------------------------------------
+local BallHighlight = Instance.new("Highlight")
+BallHighlight.Name = "BallESPHighlight"
+BallHighlight.FillColor = Color3.fromRGB(255, 255, 0)
+BallHighlight.OutlineColor = Color3.fromRGB(255, 255, 255)
+BallHighlight.FillTransparency = 0.4
+BallHighlight.Enabled = false
+BallHighlight.Parent = Workspace
+
+local BallEspSphere = Instance.new("Part")
+BallEspSphere.Name = "BallEspSphereVisual"
+BallEspSphere.Shape = Enum.PartType.Ball
+BallEspSphere.Material = Enum.Material.Neon
+BallEspSphere.Color = Color3.fromRGB(255, 255, 0)
+BallEspSphere.Transparency = 0.5
+BallEspSphere.Anchored = true
+BallEspSphere.CanCollide = false
+BallEspSphere.Parent = nil
+
+local BallNameGui = Instance.new("BillboardGui")
+BallNameGui.Name = "BallNameEspGui"
+BallNameGui.Size = UDim2.new(0, 100, 0, 30)
+BallNameGui.StudsOffset = Vector3.new(0, 3, 0)
+BallNameGui.AlwaysOnTop = true
+BallNameGui.Enabled = false
+
+local BallNameLabel = Instance.new("TextLabel")
+BallNameLabel.Size = UDim2.new(1, 0, 1, 0)
+BallNameLabel.BackgroundTransparency = 1
+BallNameLabel.Text = "(bola)"
+BallNameLabel.TextColor3 = Color3.fromRGB(255, 255, 0)
+BallNameLabel.TextStrokeTransparency = 0
+BallNameLabel.TextStrokeColor3 = Color3.fromRGB(0, 0, 0)
+BallNameLabel.Font = Enum.Font.SourceSansBold
+BallNameLabel.TextSize = 18
+BallNameLabel.Parent = BallNameGui
+BallNameGui.Parent = Workspace
+
+local TrailAtt0 = Instance.new("Attachment")
+TrailAtt0.Parent = Workspace
+local TrailAtt1 = Instance.new("Attachment")
+TrailAtt1.Parent = Workspace
+
+local BallTrail = Instance.new("Trail")
+BallTrail.Name = "SafeBallTrail"
+BallTrail.Color = ColorSequence.new(Color3.fromRGB(0, 255, 255), Color3.fromRGB(255, 0, 255))
+BallTrail.Lifetime = 1.8
+BallTrail.MinLength = 0.05
+BallTrail.WidthScale = NumberSequence.new(2.5, 0)
+BallTrail.Enabled = false
+BallTrail.Attachment0 = TrailAtt0
+BallTrail.Attachment1 = TrailAtt1
+BallTrail.Parent = Workspace
+
+local PredictCircle = Instance.new("Part")
+PredictCircle.Name = "BallPredictCircle"
+PredictCircle.Shape = Enum.PartType.Cylinder
+PredictCircle.Size = Vector3.new(0.2, 5, 5)
+PredictCircle.Color = Color3.fromRGB(0, 255, 100)
+PredictCircle.Material = Enum.Material.Neon
+PredictCircle.Anchored = true
+PredictCircle.CanCollide = false
+PredictCircle.Transparency = 0.3
+PredictCircle.Parent = nil
+
+---------------------------------------------------------
+-- PASTA E ADAPTADORES DE ENEMY REACH
+---------------------------------------------------------
+local EnemyReachFolder = Instance.new("Folder")
+EnemyReachFolder.Name = "EnemyReachVisuals"
+EnemyReachFolder.Parent = Workspace
+
+local EnemyReachParts = {}
+
+---------------------------------------------------------
+-- INTERFACE GRÁFICA (GUI & ÍCONE DE MENU)
+---------------------------------------------------------
+local OpenBtn = Instance.new("ImageButton")
+OpenBtn.Name = "OpenButton"
+OpenBtn.Size = UDim2.new(0, 50, 0, 50)
+OpenBtn.Position = UDim2.new(0, 15, 0.45, 0)
+OpenBtn.BackgroundColor3 = Color3.fromRGB(25, 25, 30)
+OpenBtn.Image = "rbxassetid://4384403532"
+OpenBtn.ImageColor3 = Color3.fromRGB(0, 200, 255)
+OpenBtn.Visible = false
+OpenBtn.Parent = ScreenGui
+Instance.new("UICorner", OpenBtn).CornerRadius = UDim.new(1, 0)
+
+local OpenBtnStroke = Instance.new("UIStroke")
+OpenBtnStroke.Thickness = 2
+OpenBtnStroke.Color = Color3.fromRGB(0, 180, 255)
+OpenBtnStroke.Parent = OpenBtn
+
+local MainFrame = Instance.new("Frame")
+MainFrame.Name = "MainFrame"
+MainFrame.Size = UDim2.new(0, 310, 0, 420)
+MainFrame.Position = UDim2.new(0.5, -155, 0.5, -210)
+MainFrame.BackgroundColor3 = Color3.fromRGB(25, 25, 25)
+MainFrame.Visible = false
+MainFrame.Active = true
+MainFrame.Draggable = true
+MainFrame.Parent = ScreenGui
+Instance.new("UICorner", MainFrame).CornerRadius = UDim.new(0, 10)
+
+local Title = Instance.new("TextLabel")
+Title.Size = UDim2.new(1, 0, 0, 30)
+Title.BackgroundTransparency = 1
+Title.Text = "TCS Pro - Classic Soccer"
+Title.TextColor3 = Color3.fromRGB(0, 200, 255)
+Title.Font = Enum.Font.SourceSansBold
+Title.TextSize = 18
+Title.Parent = MainFrame
+
+local TabBar = Instance.new("Frame")
+TabBar.Size = UDim2.new(1, -12, 0, 30)
+TabBar.Position = UDim2.new(0, 6, 0, 32)
+TabBar.BackgroundTransparency = 1
+TabBar.Parent = MainFrame
+
+local TabListLayout = Instance.new("UIListLayout")
+TabListLayout.FillDirection = Enum.FillDirection.Horizontal
+TabListLayout.Padding = UDim.new(0, 4)
+TabListLayout.Parent = TabBar
+
+local PagesFolder = Instance.new("Folder")
+PagesFolder.Name = "Pages"
+PagesFolder.Parent = MainFrame
+
+local function CreateTab(name)
+	local tabBtn = Instance.new("TextButton")
+	tabBtn.Size = UDim2.new(0, 94, 1, 0)
+	tabBtn.BackgroundColor3 = Color3.fromRGB(40, 40, 40)
+	tabBtn.TextColor3 = Color3.fromRGB(200, 200, 200)
+	tabBtn.Text = name
+	tabBtn.Font = Enum.Font.SourceSansBold
+	tabBtn.TextSize = 12
+	tabBtn.Parent = TabBar
+	Instance.new("UICorner", tabBtn).CornerRadius = UDim.new(0, 6)
+
+	local page = Instance.new("ScrollingFrame")
+	page.Size = UDim2.new(1, -16, 1, -100)
+	page.Position = UDim2.new(0, 8, 0, 68)
+	page.BackgroundTransparency = 1
+	page.ScrollBarThickness = 4
+	page.CanvasSize = UDim2.new(0, 0, 0, 620)
+	page.Visible = false
+	page.Parent = PagesFolder
+
+	local list = Instance.new("UIListLayout")
+	list.Padding = UDim.new(0, 6)
+	list.SortOrder = Enum.SortOrder.LayoutOrder
+	list.Parent = page
+
+	return tabBtn, page
+end
+
+local TabMainBtn, PageMain = CreateTab("Principal")
+local TabVisualBtn, PageVisual = CreateTab("Visuais & Bolas")
+local TabEnemyBtn, PageEnemy = CreateTab("Inimigos/Ctrl")
+
+PageMain.Visible = true
+TabMainBtn.BackgroundColor3 = Color3.fromRGB(0, 140, 230)
+TabMainBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
+
+local function SwitchTab(selectedBtn, selectedPage)
+	for _, btn in ipairs(TabBar:GetChildren()) do
+		if btn:IsA("TextButton") then
+			btn.BackgroundColor3 = Color3.fromRGB(40, 40, 40)
+			btn.TextColor3 = Color3.fromRGB(200, 200, 200)
+		end
+	end
+	for _, page in ipairs(PagesFolder:GetChildren()) do
+		page.Visible = false
+	end
+	selectedBtn.BackgroundColor3 = Color3.fromRGB(0, 140, 230)
+	selectedBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
+	selectedPage.Visible = true
+end
+
+TabMainBtn.MouseButton1Click:Connect(function() SwitchTab(TabMainBtn, PageMain) end)
+TabVisualBtn.MouseButton1Click:Connect(function() SwitchTab(TabVisualBtn, PageVisual) end)
+TabEnemyBtn.MouseButton1Click:Connect(function() SwitchTab(TabEnemyBtn, PageEnemy) end)
+
+local function CreateButton(parent, text, bgCol, order)
+	local btn = Instance.new("TextButton")
+	btn.Size = UDim2.new(0.98, 0, 0, 32)
+	btn.BackgroundColor3 = bgCol
+	btn.TextColor3 = Color3.fromRGB(255, 255, 255)
+	btn.Text = text
+	btn.Font = Enum.Font.SourceSansSemibold
+	btn.TextSize = 13
+	btn.LayoutOrder = order
+	btn.Parent = parent
+	Instance.new("UICorner", btn).CornerRadius = UDim.new(0, 6)
+	return btn
+end
+
+local function CreateInput(parent, placeholder, textDef, order)
+	local inp = Instance.new("TextBox")
+	inp.Size = UDim2.new(0.98, 0, 0, 32)
+	inp.BackgroundColor3 = Color3.fromRGB(45, 45, 45)
+	inp.TextColor3 = Color3.fromRGB(255, 255, 255)
+	inp.Text = textDef
+	inp.PlaceholderText = placeholder
+	inp.Font = Enum.Font.SourceSans
+	inp.TextSize = 13
+	inp.LayoutOrder = order
+	inp.Parent = parent
+	Instance.new("UICorner", inp).CornerRadius = UDim.new(0, 6)
+	return inp
+end
+
+local AutoBallBtn = CreateButton(PageMain, "Auto Ball: DESLIGADO", Color3.fromRGB(180, 40, 40), 1)
+local AutoBallModeBtn = CreateButton(PageMain, "Modo Auto Ball: Normal", Color3.fromRGB(0, 120, 200), 2)
+local ReachBallBtn = CreateButton(PageMain, "Reach Ball (Zona): DESLIGADO", Color3.fromRGB(180, 40, 40), 3)
+local ZoneSizeInput = CreateInput(PageMain, "Largura Zona Bola (ex: 60)", "60", 4)
+local ReachBtn = CreateButton(PageMain, "Reach (Hitbox Bola): DESLIGADO", Color3.fromRGB(180, 40, 40), 5)
+local ReachSizeInput = CreateInput(PageMain, "Largura Hitbox Reach (ex: 15)", "15", 6)
+local AutoSwagBtn = CreateButton(PageMain, "Auto Swag: DESLIGADO", Color3.fromRGB(180, 40, 40), 7)
+local BallPredictBtn = CreateButton(PageMain, "Ball Predict Visual: DESLIGADO", Color3.fromRGB(180, 40, 40), 8)
+
+-- NOVOS CONTROLES: Interferência Analógica e Studs da Bola
+local AnalogInterferenceInput = CreateInput(PageMain, "Interferência Analógico (1-100%)", "50%", 9)
+local StudsBallInput = CreateInput(PageMain, "Studs Ball Distância (ex: 2.5)", "2.5", 10)
+
+local EspBallBtn = CreateButton(PageVisual, "ESP Ball + Nome: DESLIGADO", Color3.fromRGB(180, 40, 40), 1)
+local ZoneModeBtn = CreateButton(PageVisual, "Modo das Zonas: 3D", Color3.fromRGB(0, 120, 200), 2)
+local ColorBtn = CreateButton(PageVisual, "Cor Hitbox (Ciano)", Color3.fromRGB(50, 50, 50), 3)
+local BallSkinBtn = CreateButton(PageVisual, "Bola Skin: Padrão", Color3.fromRGB(50, 50, 50), 4)
+local BallColorBtn = CreateButton(PageVisual, "Cor da Bola: Padrão", Color3.fromRGB(50, 50, 50), 5)
+local AtmosphereBtn = CreateButton(PageVisual, "Atmosfera: Padrão", Color3.fromRGB(50, 50, 50), 6)
+local SkyboxBtn = CreateButton(PageVisual, "Skybox: Padrão", Color3.fromRGB(50, 50, 50), 7)
+
+local EnemyReachBtn = CreateButton(PageEnemy, "Enemy Reach: DESLIGADO", Color3.fromRGB(180, 40, 40), 1)
+local MoveModeBtn = CreateButton(PageEnemy, "Modo de Movimento: Normal", Color3.fromRGB(0, 120, 200), 2)
+local AnalogBtn = CreateButton(PageEnemy, "Analógico Virtual: DESLIGADO", Color3.fromRGB(180, 40, 40), 3)
+local JumpBtn = CreateButton(PageEnemy, "Pulo Virtual: DESLIGADO", Color3.fromRGB(180, 40, 40), 4)
+
+local StatusLabel = Instance.new("TextLabel")
+StatusLabel.Size = UDim2.new(1, -20, 0, 25)
+StatusLabel.Position = UDim2.new(0, 10, 1, -28)
+StatusLabel.BackgroundTransparency = 1
+StatusLabel.Text = "Status: Procurando Bola Mais Próxima..."
+StatusLabel.TextColor3 = Color3.fromRGB(180, 180, 180)
+StatusLabel.Font = Enum.Font.SourceSans
+StatusLabel.TextSize = 13
+StatusLabel.Parent = MainFrame
+
+OpenBtn.MouseButton1Click:Connect(function()
+	MainFrame.Visible = not MainFrame.Visible
+	TweenService:Create(OpenBtn, TweenInfo.new(0.15), {Rotation = MainFrame.Visible and 90 or 0}):Play()
+end)
+
+---------------------------------------------------------
+-- ANIMAÇÃO DA TELA DE CARREGAMENTO
+---------------------------------------------------------
+task.spawn(function()
+	BarFill:TweenSize(UDim2.new(0.3, 0, 1, 0), Enum.EasingDirection.Out, Enum.EasingStyle.Quad, 0.6, true)
+	task.wait(0.6)
+	LoadingStatus.Text = "Sincronizando Hitboxes e Zonas..."
+	BarFill:TweenSize(UDim2.new(0.7, 0, 1, 0), Enum.EasingDirection.Out, Enum.EasingStyle.Quad, 0.7, true)
+	task.wait(0.7)
+	LoadingStatus.Text = "Inicializando TCS Script..."
+	BarFill:TweenSize(UDim2.new(1, 0, 1, 0), Enum.EasingDirection.Out, Enum.EasingStyle.Quad, 0.5, true)
+	task.wait(0.6)
+	
+	TweenService:Create(LoadingFrame, TweenInfo.new(0.5), {BackgroundTransparency = 1}):Play()
+	TweenService:Create(LoadingTitle, TweenInfo.new(0.4), {TextTransparency = 1}):Play()
+	TweenService:Create(LoadingStatus, TweenInfo.new(0.4), {TextTransparency = 1}):Play()
+	TweenService:Create(BarBackground, TweenInfo.new(0.4), {BackgroundTransparency = 1}):Play()
+	TweenService:Create(BarFill, TweenInfo.new(0.4), {BackgroundTransparency = 1}):Play()
+	
+	task.wait(0.5)
+	LoadingFrame:Destroy()
+	OpenBtn.Visible = true
+end)
+
+---------------------------------------------------------
+-- BOTÃO DE PULO VIRTUAL
+---------------------------------------------------------
+local JumpButtonUI = Instance.new("TextButton")
+JumpButtonUI.Name = "VirtualJumpButton"
+JumpButtonUI.Size = UDim2.new(0, 65, 0, 65)
+JumpButtonUI.Position = UDim2.new(1, -80, 1, -80)
+JumpButtonUI.BackgroundColor3 = Color3.fromRGB(0, 170, 255)
+JumpButtonUI.BackgroundTransparency = 0.3
+JumpButtonUI.Text = "PULAR"
+JumpButtonUI.TextColor3 = Color3.fromRGB(255, 255, 255)
+JumpButtonUI.Font = Enum.Font.SourceSansBold
+JumpButtonUI.TextSize = 15
+JumpButtonUI.Visible = false
+JumpButtonUI.Parent = ScreenGui
+Instance.new("UICorner", JumpButtonUI).CornerRadius = UDim.new(1, 0)
+
+local function DoJump()
+	local char = LocalPlayer.Character
+	local hum = char and char:FindFirstChildOfClass("Humanoid")
+	if hum then hum.Jump = true end
+	VirtualInputManager:SendKeyEvent(true, Enum.KeyCode.Space, false, game)
+	task.wait(0.05)
+	VirtualInputManager:SendKeyEvent(false, Enum.KeyCode.Space, false, game)
+end
+
+JumpButtonUI.InputBegan:Connect(function(input)
+	if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
+		DoJump()
+	end
+end)
+
+---------------------------------------------------------
+-- ANALÓGICO VIRTUAL (CORRIGIDO PARA PC E MOBILE)
+---------------------------------------------------------
+local AnalogBase = Instance.new("ImageButton")
+AnalogBase.Name = "VirtualAnalogBase"
+AnalogBase.Size = UDim2.new(0, 100, 0, 100)
+AnalogBase.Position = UDim2.new(0, 10, 1, -120)
+AnalogBase.BackgroundColor3 = Color3.fromRGB(15, 15, 15)
+AnalogBase.BackgroundTransparency = 0.4
+AnalogBase.AutoButtonColor = false
+AnalogBase.Active = true 
+AnalogBase.Visible = false
+AnalogBase.Parent = ScreenGui
+Instance.new("UICorner", AnalogBase).CornerRadius = UDim.new(1, 0)
+
+local AnalogThumb = Instance.new("Frame")
+AnalogThumb.Name = "AnalogThumb"
+AnalogThumb.Size = UDim2.new(0, 36, 0, 36)
+AnalogThumb.Position = UDim2.new(0.5, -18, 0.5, -18)
+AnalogThumb.BackgroundColor3 = Color3.fromRGB(0, 200, 255)
+AnalogThumb.Active = false
+AnalogThumb.Parent = AnalogBase
+Instance.new("UICorner", AnalogThumb).CornerRadius = UDim.new(1, 0)
+
+local DraggingAnalog = false
+local IsAnalogTouch = false
+local AnalogTouchObject = nil
+local AnalogMoveVector = Vector3.new(0, 0, 0)
+
+AnalogBase.InputBegan:Connect(function(input)
+	if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
+		DraggingAnalog = true
+		AnalogTouchObject = input
+		IsAnalogTouch = (input.UserInputType == Enum.UserInputType.Touch)
+	end
+end)
+
+UserInputService.InputChanged:Connect(function(input)
+	if DraggingAnalog then
+		local valid = false
+		if IsAnalogTouch then
+			valid = (input == AnalogTouchObject)
+		else
+			valid = (input.UserInputType == Enum.UserInputType.MouseMovement)
+		end
+		
+		if valid then
+			local center = AnalogBase.AbsolutePosition + (AnalogBase.AbsoluteSize / 2)
+			local delta = Vector2.new(input.Position.X - center.X, input.Position.Y - center.Y)
+			local maxRadius = AnalogBase.AbsoluteSize.X / 2
+			local distance = math.min(delta.Magnitude, maxRadius)
+			local dir = delta.Magnitude > 0 and delta.Unit or Vector2.new(0, 0)
+			
+			local thumbOffset = dir * distance
+			AnalogThumb.Position = UDim2.new(0.5, thumbOffset.X - 18, 0.5, thumbOffset.Y - 18)
+			AnalogMoveVector = Vector3.new(dir.X, 0, dir.Y)
+		end
+	end
+end)
+
+UserInputService.InputEnded:Connect(function(input)
+	if DraggingAnalog then
+		local valid = false
+		if IsAnalogTouch then
+			valid = (input == AnalogTouchObject)
+		else
+			valid = (input.UserInputType == Enum.UserInputType.MouseButton1)
+		end
+		
+		if valid then
+			DraggingAnalog = false
+			AnalogTouchObject = nil
+			AnalogThumb.Position = UDim2.new(0.5, -18, 0.5, -18)
+			AnalogMoveVector = Vector3.new(0, 0, 0)
+		end
+	end
+end)
+
+---------------------------------------------------------
+-- PRESETS E FUNÇÕES DE VISUAL
+---------------------------------------------------------
+local AtmospherePresets = {
+	{Name = "Padrão", Density = 0.3, Offset = 0, Color = Color3.fromRGB(199, 170, 107), Decay = Color3.fromRGB(92, 60, 13)},
+	{Name = "Nevoeiro", Density = 0.7, Offset = 0, Color = Color3.fromRGB(200, 200, 200), Decay = Color3.fromRGB(100, 100, 100)},
+	{Name = "Pôr do Sol", Density = 0.45, Offset = 0.2, Color = Color3.fromRGB(255, 120, 50), Decay = Color3.fromRGB(120, 30, 90)},
+	{Name = "Ciberpunk / Neon", Density = 0.5, Offset = 0.1, Color = Color3.fromRGB(255, 0, 150), Decay = Color3.fromRGB(0, 200, 255)},
+	{Name = "Sombrio", Density = 0.85, Offset = 0, Color = Color3.fromRGB(30, 30, 35), Decay = Color3.fromRGB(10, 10, 15)}
+}
+local CurrentAtmoIndex = 1
+
+local function ApplyAtmosphere(preset)
+	local atmo = Lighting:FindFirstChildOfClass("Atmosphere") or Instance.new("Atmosphere", Lighting)
+	atmo.Density = preset.Density
+	atmo.Offset = preset.Offset
+	atmo.Color = preset.Color
+	atmo.Decay = preset.Decay
+end
+
+AtmosphereBtn.MouseButton1Click:Connect(function()
+	CurrentAtmoIndex = (CurrentAtmoIndex % #AtmospherePresets) + 1
+	local preset = AtmospherePresets[CurrentAtmoIndex]
+	ApplyAtmosphere(preset)
+	AtmosphereBtn.Text = "Atmosfera: " .. preset.Name
+end)
+
+local SkyPresets = {
+	{Name = "Padrão", SkyboxBk = "", SkyboxDn = "", SkyboxFt = "", SkyboxLf = "", SkyboxRt = "", SkyboxUp = ""},
+	{Name = "Galáxia / Espaço", SkyboxBk = "rbxassetid://159454299", SkyboxDn = "rbxassetid://159454296", SkyboxFt = "rbxassetid://159454293", SkyboxLf = "rbxassetid://159454286", SkyboxRt = "rbxassetid://159454300", SkyboxUp = "rbxassetid://159454288"},
+	{Name = "Pôr do Sol Roxo", SkyboxBk = "rbxassetid://6100222383", SkyboxDn = "rbxassetid://6100220317", SkyboxFt = "rbxassetid://6100224168", SkyboxLf = "rbxassetid://6100222958", SkyboxRt = "rbxassetid://6100223583", SkyboxUp = "rbxassetid://6100224760"},
+	{Name = "Noite Estrelada", SkyboxBk = "rbxassetid://12064107", SkyboxDn = "rbxassetid://12064152", SkyboxFt = "rbxassetid://12064121", SkyboxLf = "rbxassetid://12064131", SkyboxRt = "rbxassetid://12064115", SkyboxUp = "rbxassetid://12064142"}
+}
+local CurrentSkyIndex = 1
+
+local function ApplySkybox(preset)
+	local sky = Lighting:FindFirstChildOfClass("Sky")
+	if preset.Name == "Padrão" then
+		if sky then sky:Destroy() end
+		return
+	end
+	if not sky then
+		sky = Instance.new("Sky", Lighting)
+	end
+	sky.SkyboxBk = preset.SkyboxBk
+	sky.SkyboxDn = preset.SkyboxDn
+	sky.SkyboxFt = preset.SkyboxFt
+	sky.SkyboxLf = preset.SkyboxLf
+	sky.SkyboxRt = preset.SkyboxRt
+	sky.SkyboxUp = preset.SkyboxUp
+end
+
+SkyboxBtn.MouseButton1Click:Connect(function()
+	CurrentSkyIndex = (CurrentSkyIndex % #SkyPresets) + 1
+	local preset = SkyPresets[CurrentSkyIndex]
+	ApplySkybox(preset)
+	SkyboxBtn.Text = "Skybox: " .. preset.Name
+end)
+
+local BallColorPresets = {
+	{Name = "Padrão", Color = nil},
+	{Name = "Vermelho Neon", Color = Color3.fromRGB(255, 30, 30)},
+	{Name = "Verde Limão", Color = Color3.fromRGB(50, 255, 50)},
+	{Name = "Azul Elétrico", Color = Color3.fromRGB(0, 150, 255)},
+	{Name = "Amarelo Ouro", Color = Color3.fromRGB(255, 215, 0)},
+	{Name = "Roxo Brilhante", Color = Color3.fromRGB(180, 0, 255)}
+}
+local CurrentBallColorIndex = 1
+
+local function ApplyBallColor(preset)
+	if not CurrentBall then return end
+	local targetModel = CurrentBall.Parent:IsA("Model") and CurrentBall.Parent or CurrentBall
+
+	if not targetModel:FindFirstChild("OriginalBallColor") then
+		local origColor = Instance.new("Color3Value")
+		origColor.Name = "OriginalBallColor"
+		origColor.Value = CurrentBall.Color
+		origColor.Parent = targetModel
+	end
+
+	local col = preset.Color
+	if preset.Name == "Padrão" then
+		local orig = targetModel:FindFirstChild("OriginalBallColor")
+		col = orig and orig.Value or Color3.fromRGB(255, 255, 255)
+	end
+
+	for _, obj in ipairs(targetModel:GetDescendants()) do
+		if obj:IsA("BasePart") then obj.Color = col end
+	end
+	if targetModel:IsA("BasePart") then targetModel.Color = col end
+end
+
+BallColorBtn.MouseButton1Click:Connect(function()
+	CurrentBallColorIndex = (CurrentBallColorIndex % #BallColorPresets) + 1
+	local preset = BallColorPresets[CurrentBallColorIndex]
+	if CurrentBall then ApplyBallColor(preset) end
+	BallColorBtn.Text = "Cor da Bola: " .. preset.Name
+end)
+
+local BallPresets = {
+	{Name = "Padrão", Texture = nil},
+	{Name = "Champions League", Texture = "rbxassetid://1528628283"},
+	{Name = "Brasileirão", Texture = "rbxassetid://1232822802"},
+	{Name = "Premier League", Texture = "rbxassetid://1528629000"},
+	{Name = "La Liga", Texture = "rbxassetid://181822898"},
+	{Name = "Copa do Mundo", Texture = "rbxassetid://147053073"}
+}
+local CurrentBallPresetIndex = 1
+
+local function ApplyBallSkin(preset)
+	if not CurrentBall then return end
+	local parentTarget = CurrentBall.Parent:IsA("Model") and CurrentBall.Parent or CurrentBall
+
+	if not parentTarget:FindFirstChild("OriginalTexture") then
+		local orig = Instance.new("StringValue")
+		orig.Name = "OriginalTexture"
+		local foundTex = ""
+		if CurrentBall:IsA("MeshPart") then
+			foundTex = CurrentBall.TextureID
+		else
+			local mesh = CurrentBall:FindFirstChildWhichIsA("SpecialMesh", true)
+			if mesh then foundTex = mesh.TextureId end
+		end
+		orig.Value = foundTex
+		orig.Parent = parentTarget
+	end
+
+	local targetTex = preset.Texture
+	if preset.Name == "Padrão" then
+		local orig = parentTarget:FindFirstChild("OriginalTexture")
+		targetTex = orig and orig.Value or ""
+	end
+
+	for _, obj in ipairs(parentTarget:GetDescendants()) do
+		if obj:IsA("MeshPart") then
+			obj.TextureID = targetTex
+		elseif obj:IsA("SpecialMesh") then
+			obj.TextureId = targetTex
+		elseif obj:IsA("Decal") or obj:IsA("Texture") then
+			obj.Texture = targetTex
+		end
+	end
+end
+
+BallSkinBtn.MouseButton1Click:Connect(function()
+	CurrentBallPresetIndex = (CurrentBallPresetIndex % #BallPresets) + 1
+	local preset = BallPresets[CurrentBallPresetIndex]
+	if CurrentBall then ApplyBallSkin(preset) end
+	BallSkinBtn.Text = "Bola Skin: " .. preset.Name
+end)
+
+---------------------------------------------------------
+-- SISTEMA DE BUSCA DE BOLA COM CACHE (OTIMIZADO)
+---------------------------------------------------------
+local CachedBalls = {}
+
+local function RefreshBallCache()
+	table.clear(CachedBalls)
+	for _, obj in ipairs(Workspace:GetDescendants()) do
+		if obj:IsA("BasePart") or obj:IsA("Model") then
+			local nameLower = string.lower(obj.Name)
+			if string.find(nameLower, "tps") or nameLower == "ball" or nameLower == "football" then
+				if not obj:FindFirstAncestorOfClass("Model") or not Players:GetPlayerFromCharacter(obj:FindFirstAncestorOfClass("Model")) then
+					local part = obj:IsA("BasePart") and obj or (obj.PrimaryPart or obj:FindFirstChildWhichIsA("BasePart"))
+					if part then
+						table.insert(CachedBalls, part)
+					end
+				end
+			end
+		end
+	end
+end
+
+task.spawn(function()
+	while true do
+		RefreshBallCache()
+		task.wait(3)
+	end
+end)
+
+local function ScanForClosestTPSBall()
+	local char = LocalPlayer.Character
+	local hrp = char and char:FindFirstChild("HumanoidRootPart")
+	if not hrp then return CachedBalls[1] end
+
+	local closestBall = nil
+	local shortestDistance = math.huge
+
+	for _, part in ipairs(CachedBalls) do
+		if part and part.Parent then
+			local dist = (part.Position - hrp.Position).Magnitude
+			if dist < shortestDistance then
+				shortestDistance = dist
+				closestBall = part
+			end
+		end
+	end
+	return closestBall
+end
+
+---------------------------------------------------------
+-- LÓGICA DOS MODOS DE MOVIMENTAÇÃO (CORRIGIDA PARA NÃO ENGASGAR/DERRAPAR)
+---------------------------------------------------------
+local function ProcessMovement(humanoid, targetDir, dt)
+	if not humanoid then return end
+	local mode = MovementModes[MovementModeIndex]
+
+	-- Se o vetor alvo for zero, zera instantaneamente para evitar deslizamentos/tremores
+	if targetDir.Magnitude < 0.001 then
+		CurrentMoveVector = Vector3.new(0, 0, 0)
+	else
+		if mode == "Normal" then
+			CurrentMoveVector = targetDir
+		elseif mode == "Suave" then
+			CurrentMoveVector = CurrentMoveVector:Lerp(targetDir, math.clamp(dt * 6, 0, 1))
+		elseif mode == "Fluida" then
+			CurrentMoveVector = CurrentMoveVector:Lerp(targetDir, math.clamp(dt * 12, 0, 1))
+		end
+		
+		if CurrentMoveVector.Magnitude > 1 then
+			CurrentMoveVector = CurrentMoveVector.Unit
+		end
+	end
+
+	humanoid:Move(CurrentMoveVector, false)
+end
+
+---------------------------------------------------------
+-- FUNÇÕES DE SUPORTE E PREDICT
+---------------------------------------------------------
+local function IsPlayerInZone(ballPos, targetPos, size)
+	return math.abs(targetPos.X - ballPos.X) <= (size.X / 2) and
+	       math.abs(targetPos.Y - ballPos.Y) <= (size.Y / 2) and
+	       math.abs(targetPos.Z - ballPos.Z) <= (size.Z / 2)
+end
+
+local function CalculateLandingPosition(ball)
+	local p0 = ball.Position
+	local v0 = ball.AssemblyLinearVelocity
+	local g = Workspace.Gravity
+	
+	local rayParams = RaycastParams.new()
+	rayParams.FilterDescendantsInstances = {ball, LocalPlayer.Character}
+	rayParams.FilterType = Enum.RaycastFilterType.Exclude
+
+	local ray = Workspace:Raycast(p0, Vector3.new(0, -300, 0), rayParams)
+	local floorY = ray and ray.Position.Y or (p0.Y - 3)
+	
+	if p0.Y <= floorY + 1 or math.abs(v0.Y) < 0.2 then
+		return Vector3.new(p0.X, floorY + 0.1, p0.Z)
+	end
+	
+	local dy = p0.Y - floorY
+	local a = -0.5 * g
+	local b = v0.Y
+	local c = dy
+	local discriminant = b*b - 4*a*c
+	if discriminant < 0 then return p0 end
+	
+	local t1 = (-b + math.sqrt(discriminant)) / (2*a)
+	local t2 = (-b - math.sqrt(discriminant)) / (2*a)
+	local t = math.max(t1, t2)
+	if t < 0 then return p0 end
+	
+	return Vector3.new(p0.X + (v0.X * t), floorY + 0.1, p0.Z + (v0.Z * t))
+end
+
+local function GetTPSActiveFoot(char)
+	if not char then return nil end
+	local footObj = char:FindFirstChild("Foot") or LocalPlayer:FindFirstChild("Foot") or (char:FindFirstChild("Values") and char.Values:FindFirstChild("Foot"))
+	if footObj and (footObj:IsA("StringValue") or footObj:IsA("ValueObject")) then
+		local val = string.upper(tostring(footObj.Value))
+		if string.find(val, "RIGHT") or string.find(val, "DIREITA") or val == "R" then
+			return "RIGHT"
+		elseif string.find(val, "LEFT") or string.find(val, "ESQUERDA") or val == "L" then
+			return "LEFT"
+		end
+	end
+	return nil
+end
+
+local function TriggerAutoSwag()
+	local char = LocalPlayer.Character
+	local root = char and char:FindFirstChild("HumanoidRootPart")
+	if not root or not CurrentBall then return end
+	
+	if (CurrentBall.Position - root.Position).Magnitude <= 18 then
+		local relativePos = root.CFrame:PointToObjectSpace(CurrentBall.Position)
+		local desiredFoot = (relativePos.X >= 0) and "RIGHT" or "LEFT"
+		local activeFoot = GetTPSActiveFoot(char) or CurrentTrackedFoot
+		
+		if desiredFoot ~= activeFoot and tick() - LastSwagTime > 0.35 then
+			LastSwagTime = tick()
+			CurrentTrackedFoot = desiredFoot
+			task.spawn(function()
+				VirtualInputManager:SendKeyEvent(true, Enum.KeyCode.LeftControl, false, game)
+				task.wait(0.05)
+				VirtualInputManager:SendKeyEvent(false, Enum.KeyCode.LeftControl, false, game)
+			end)
+		end
+	end
+end
+
+---------------------------------------------------------
+-- GERENCIAMENTO DE ENEMY REACH (OTIMIZADO)
+---------------------------------------------------------
+task.spawn(function()
+	while true do
+		if EnemyReachEnabled then
+			for _, player in ipairs(Players:GetPlayers()) do
+				if player ~= LocalPlayer and player.Character then
+					local hrp = player.Character:FindFirstChild("HumanoidRootPart")
+					if hrp then
+						local entry = EnemyReachParts[player]
+						if not entry then
+							local part = Instance.new("Part")
+							part.Name = "EnemyReachPart_" .. player.Name
+							part.Anchored = true
+							part.CanCollide = false
+							part.Transparency = 1
+							part.Parent = EnemyReachFolder
+
+							local box = Instance.new("SelectionBox")
+							box.Color3 = Color3.fromRGB(255, 50, 50)
+							box.SurfaceColor3 = Color3.fromRGB(255, 50, 50)
+							box.SurfaceTransparency = 0.8
+							box.LineThickness = 0.04
+							box.Adornee = part
+							box.Parent = EnemyReachFolder
+
+							entry = {Part = part, Box = box}
+							EnemyReachParts[player] = entry
+						end
+
+						if ZoneVisualMode == "3D" then
+							entry.Part.Size = Vector3.new(EnemyReachSize.X, EnemyReachSize.Y, EnemyReachSize.Z)
+							entry.Part.CFrame = hrp.CFrame
+							entry.Box.Visible = true
+						elseif ZoneVisualMode == "2D" then
+							entry.Part.Size = Vector3.new(EnemyReachSize.X, 0.1, EnemyReachSize.Z)
+							entry.Part.CFrame = CFrame.new(hrp.Position.X, hrp.Position.Y - 2.9, hrp.Position.Z)
+							entry.Box.Visible = true
+						else
+							entry.Box.Visible = false
+						end
+					end
+				else
+					if EnemyReachParts[player] then
+						EnemyReachParts[player].Part:Destroy()
+						EnemyReachParts[player] = nil
+					end
+				end
+			end
+		end
+		task.wait(0.1)
+	end
+end)
+
+---------------------------------------------------------
+-- LOOP PRINCIPAL (RENDERSTEPPED OTIMIZADO & CORRIGIDO)
+---------------------------------------------------------
+RunService.RenderStepped:Connect(function(dt)
+	local closest = ScanForClosestTPSBall()
+	if closest ~= CurrentBall then
+		CurrentBall = closest
+		if CurrentBall then
+			if BallPresets[CurrentBallPresetIndex].Name ~= "Padrão" then ApplyBallSkin(BallPresets[CurrentBallPresetIndex]) end
+			if BallColorPresets[CurrentBallColorIndex].Name ~= "Padrão" then ApplyBallColor(BallColorPresets[CurrentBallColorIndex]) end
+		end
+	end
+
+	local char = LocalPlayer.Character
+	local humanoid = char and char:FindFirstChildOfClass("Humanoid")
+	local hrp = char and char:FindFirstChild("HumanoidRootPart")
+	local rightLeg = char and (char:FindFirstChild("Right Leg") or char:FindFirstChild("RightFoot") or char:FindFirstChild("Torso") or hrp)
+
+	-- 1. CALCULAR DIREÇÃO DO ANALÓGICO VIRTUAL
+	local analogDir = Vector3.new(0, 0, 0)
+	local isAnalogActive = VirtualAnalogEnabled and DraggingAnalog and AnalogMoveVector.Magnitude > 0.1
+	if isAnalogActive then
+		local cam = Workspace.CurrentCamera
+		local forward = Vector3.new(cam.CFrame.LookVector.X, 0, cam.CFrame.LookVector.Z)
+		if forward.Magnitude > 0 then forward = forward.Unit end
+		local right = Vector3.new(cam.CFrame.RightVector.X, 0, cam.CFrame.RightVector.Z)
+		if right.Magnitude > 0 then right = right.Unit end
+		
+		analogDir = (forward * -AnalogMoveVector.Z) + (right * AnalogMoveVector.X)
+		if analogDir.Magnitude > 0.001 then
+			analogDir = analogDir.Unit
+		end
+	end
+
+	-- Controle de zonas
+	local inReachBallZone = false
+	local inReachZone = false
+	local insideAnyZone = false
+
+	if EspBallEnabled and CurrentBall then
+		BallHighlight.Adornee = CurrentBall
+		BallHighlight.Enabled = true
+		BallEspSphere.Size = CurrentBall.Size
+		BallEspSphere.Position = CurrentBall.Position
+		BallEspSphere.Parent = Workspace
+		BallNameGui.Adornee = CurrentBall
+		BallNameGui.Enabled = true
+		TrailAtt0.WorldPosition = CurrentBall.Position + Vector3.new(0, 1.2, 0)
+		TrailAtt1.WorldPosition = CurrentBall.Position - Vector3.new(0, 1.2, 0)
+		BallTrail.Enabled = true
+	else
+		BallHighlight.Enabled = false
+		BallEspSphere.Parent = nil
+		BallNameGui.Enabled = false
+		BallTrail.Enabled = false
+	end
+
+	if CurrentBall then
+		local ballPos = CurrentBall.Position
+
+		if ReachBallEnabled then
+			ZonePart.Parent = Workspace
+			if ZoneVisualMode == "3D" then
+				ZonePart.Size = ReachBallSize
+				ZonePart.CFrame = CFrame.new(ballPos)
+				ZoneBox.Parent = Workspace
+				ZoneBox.Visible = true
+			elseif ZoneVisualMode == "2D" then
+				ZonePart.Size = Vector3.new(ReachBallSize.X, 0.1, ReachBallSize.Z)
+				ZonePart.CFrame = CFrame.new(ballPos.X, ballPos.Y, ballPos.Z)
+				ZoneBox.Parent = Workspace
+				ZoneBox.Visible = true
+			else
+				ZoneBox.Visible = false
+			end
+		else
+			ZonePart.Parent = nil
+			ZoneBox.Parent = nil
+		end
+
+		if ReachEnabled then
+			CustomHitbox.Parent = Workspace
+			if ZoneVisualMode == "3D" then
+				CustomHitbox.Size = ReachSize
+				CustomHitbox.CFrame = CFrame.new(ballPos)
+				HitboxBox.Parent = Workspace
+				HitboxBox.Visible = true
+			elseif ZoneVisualMode == "2D" then
+				CustomHitbox.Size = Vector3.new(ReachSize.X, 0.1, ReachSize.Z)
+				CustomHitbox.CFrame = CFrame.new(ballPos.X, ballPos.Y, ballPos.Z)
+				HitboxBox.Parent = Workspace
+				HitboxBox.Visible = true
+			else
+				HitboxBox.Visible = false
+			end
+			HitboxBox.Color3 = ReachColor
+			HitboxBox.SurfaceColor3 = ReachColor
+		else
+			CustomHitbox.Parent = nil
+			HitboxBox.Parent = nil
+		end
+
+		if ReachEnabled and rightLeg and IsPlayerInZone(ballPos, rightLeg.Position, ReachSize) then
+			if firetouchinterest then
+				firetouchinterest(rightLeg, CurrentBall, 0)
+				task.spawn(function()
+					task.wait()
+					firetouchinterest(rightLeg, CurrentBall, 1)
+				end)
+			end
+		end
+
+		inReachBallZone = ReachBallEnabled and hrp and IsPlayerInZone(ballPos, hrp.Position, ReachBallSize)
+		inReachZone = ReachEnabled and hrp and IsPlayerInZone(ballPos, hrp.Position, ReachSize)
+		insideAnyZone = inReachBallZone or inReachZone
+
+		if AutoSwagEnabled then TriggerAutoSwag() end
+
+		if BallPredictEnabled then
+			if CurrentBall.AssemblyLinearVelocity.Magnitude > 1.5 then
+				PredictCircle.Parent = Workspace
+				PredictCircle.CFrame = CFrame.new(CalculateLandingPosition(CurrentBall)) * CFrame.Angles(0, 0, math.rad(90))
+			else
+				PredictCircle.Parent = nil
+			end
+		else
+			PredictCircle.Parent = nil
+		end
+	else
+		ZonePart.Parent = nil
+		ZoneBox.Parent = nil
+		CustomHitbox.Parent = nil
+		HitboxBox.Parent = nil
+		PredictCircle.Parent = nil
+	end
+
+	-- 2. LÓGICA DE MOVIMENTO (AutoBall sem oscilação)
+	if AutoBallEnabled and humanoid and hrp and CurrentBall then
+		local shouldFollow = ReachBallEnabled and inReachBallZone or not ReachBallEnabled
+
+		if shouldFollow then
+			local ballPos = CurrentBall.Position
+			local ballVel = CurrentBall.AssemblyLinearVelocity
+			local mode = AutoBallModes[AutoBallModeIndex]
+			local targetPos = ballPos
+
+			if mode == "Predict" then
+				local landPos = CalculateLandingPosition(CurrentBall)
+				local speedHorizontal = Vector3.new(ballVel.X, 0, ballVel.Z).Magnitude
+				targetPos = speedHorizontal > 2 and (landPos + (Vector3.new(ballVel.X, 0, ballVel.Z) * 0.3)) or landPos
+			elseif mode == "Frente" then
+				local horizVel = Vector3.new(ballVel.X, 0, ballVel.Z)
+				targetPos = horizVel.Magnitude > 1.5 and (ballPos + (horizVel.Unit * 6)) or (ballPos + (hrp.CFrame.LookVector * 4))
+			elseif mode == "Atras" then
+				local horizVel = Vector3.new(ballVel.X, 0, ballVel.Z)
+				if horizVel.Magnitude > 1 then
+					targetPos = ballPos - (horizVel.Unit * 0.8)
+				else
+					targetPos = ballPos - (hrp.CFrame.LookVector * 0.8)
+				end
+			end
+
+			local moveDir = Vector3.new(targetPos.X - hrp.Position.X, 0, targetPos.Z - hrp.Position.Z)
+			local distance = moveDir.Magnitude
+			local autoBallMoveVector = Vector3.new(0, 0, 0)
+
+			---------------------------------------------------------
+			-- LÓGICA DE STUDS CORRIGIDA (SEM RECUO/OSCILAÇÃO)
+			---------------------------------------------------------
+			if distance > StudsBallDistance then
+				autoBallMoveVector = moveDir.Unit
+			else
+				-- Quando chega na distância limite, apenas PARA totalmente.
+				autoBallMoveVector = Vector3.new(0, 0, 0)
+			end
+
+			-- INTERFERÊNCIA DO ANALÓGICO:
+			local finalMoveDir = autoBallMoveVector
+			if isAnalogActive then
+				local interferenceWeight = math.clamp(AnalogInterference / 100, 0, 1)
+				if autoBallMoveVector.Magnitude > 0.001 then
+					finalMoveDir = autoBallMoveVector:Lerp(analogDir, interferenceWeight)
+				else
+					finalMoveDir = analogDir
+				end
+
+				if finalMoveDir.Magnitude > 0.001 then
+					finalMoveDir = finalMoveDir.Unit
+				end
+			end
+
+			ProcessMovement(humanoid, finalMoveDir, dt)
+			wasControlling = true
+
+			StatusLabel.Text = "Status: Auto Ball (" .. mode .. " | " .. MovementModes[MovementModeIndex] .. ")"
+			StatusLabel.TextColor3 = Color3.fromRGB(0, 255, 100)
+		else
+			-- Permite que o analógico tome o controle se o jogador tentar andar fora da zona
+			if isAnalogActive then
+				ProcessMovement(humanoid, analogDir, dt)
+				StatusLabel.Text = "Status: Movimento Manual (Fora da Zona)"
+				StatusLabel.TextColor3 = Color3.fromRGB(0, 200, 255)
+			else
+				ProcessMovement(humanoid, Vector3.new(0, 0, 0), dt)
+				StatusLabel.Text = "Status: Aguardando Entrar na Zona!"
+				StatusLabel.TextColor3 = Color3.fromRGB(255, 165, 0)
+			end
+			wasControlling = true
+		end
+
+	elseif isAnalogActive and humanoid then
+		-- MOVIMENTO MANUAL COM ANALÓGICO
+		ProcessMovement(humanoid, analogDir, dt)
+		wasControlling = true
+		
+		if not AutoBallEnabled then
+			StatusLabel.Text = "Status: Movimento Manual (" .. MovementModes[MovementModeIndex] .. ")"
+			StatusLabel.TextColor3 = Color3.fromRGB(0, 200, 255)
+		end
+
+	else
+		-- DEVOLVE O CONTROLE ORIGINAL (WASD / TECLADO NATIVO)
+		if wasControlling then
+			wasControlling = false
+			CurrentMoveVector = Vector3.new(0, 0, 0)
+		end
+
+		-- ATUALIZAÇÃO DA HUD DE STATUS
+		if not CurrentBall then
+			StatusLabel.Text = "Status: Procurando Bola Mais Próxima..."
+			StatusLabel.TextColor3 = Color3.fromRGB(255, 100, 100)
+		elseif not AutoBallEnabled then
+			StatusLabel.Text = "Status: Bola Próxima Detectada (" .. CurrentBall.Name .. ")"
+			StatusLabel.TextColor3 = Color3.fromRGB(0, 255, 255)
+		end
+	end
+end)
+
+---------------------------------------------------------
+-- CONFIGURAÇÕES DOS BOTÕES E INPUTS DE TOGGLE
+---------------------------------------------------------
+local function ToggleBtn(btn, stateVar, baseText)
+	btn.Text = baseText .. (stateVar and ": LIGADO" or ": DESLIGADO")
+	btn.BackgroundColor3 = stateVar and Color3.fromRGB(40, 180, 80) or Color3.fromRGB(180, 40, 40)
+end
+
+AutoBallBtn.MouseButton1Click:Connect(function()
+	AutoBallEnabled = not AutoBallEnabled
+	ToggleBtn(AutoBallBtn, AutoBallEnabled, "Auto Ball")
+end)
+
+AutoBallModeBtn.MouseButton1Click:Connect(function()
+	AutoBallModeIndex = (AutoBallModeIndex % #AutoBallModes) + 1
+	AutoBallModeBtn.Text = "Modo Auto Ball: " .. AutoBallModes[AutoBallModeIndex]
+end)
+
+MoveModeBtn.MouseButton1Click:Connect(function()
+	MovementModeIndex = (MovementModeIndex % #MovementModes) + 1
+	MoveModeBtn.Text = "Modo de Movimento: " .. MovementModes[MovementModeIndex]
+end)
+
+ReachBallBtn.MouseButton1Click:Connect(function()
+	ReachBallEnabled = not ReachBallEnabled
+	ToggleBtn(ReachBallBtn, ReachBallEnabled, "Reach Ball (Zona)")
+	if not ReachBallEnabled then ZonePart.Parent = nil; ZoneBox.Parent = nil end
+end)
+
+ReachBtn.MouseButton1Click:Connect(function()
+	ReachEnabled = not ReachEnabled
+	ToggleBtn(ReachBtn, ReachEnabled, "Reach (Hitbox Bola)")
+	if not ReachEnabled then CustomHitbox.Parent = nil; HitboxBox.Parent = nil end
+end)
+
+EnemyReachBtn.MouseButton1Click:Connect(function()
+	EnemyReachEnabled = not EnemyReachEnabled
+	ToggleBtn(EnemyReachBtn, EnemyReachEnabled, "Enemy Reach")
+	if not EnemyReachEnabled then
+		EnemyReachFolder:ClearAllChildren()
+		table.clear(EnemyReachParts)
+	end
+end)
+
+AnalogBtn.MouseButton1Click:Connect(function()
+	VirtualAnalogEnabled = not VirtualAnalogEnabled
+	ToggleBtn(AnalogBtn, VirtualAnalogEnabled, "Analógico Virtual")
+	AnalogBase.Visible = VirtualAnalogEnabled
+	if not VirtualAnalogEnabled then
+		DraggingAnalog = false
+		AnalogTouchObject = nil
+		AnalogMoveVector = Vector3.new(0, 0, 0)
+	end
+end)
+
+JumpBtn.MouseButton1Click:Connect(function()
+	VirtualJumpEnabled = not VirtualJumpEnabled
+	ToggleBtn(JumpBtn, VirtualJumpEnabled, "Pulo Virtual")
+	JumpButtonUI.Visible = VirtualJumpEnabled
+end)
+
+EspBallBtn.MouseButton1Click:Connect(function()
+	EspBallEnabled = not EspBallEnabled
+	ToggleBtn(EspBallBtn, EspBallEnabled, "ESP Ball + Nome")
+	if not EspBallEnabled then
+		BallHighlight.Enabled = false
+		BallEspSphere.Parent = nil
+		BallNameGui.Enabled = false
+		BallTrail.Enabled = false
+	end
+end)
+
+ZoneModeBtn.MouseButton1Click:Connect(function()
+	ZoneVisualMode = (ZoneVisualMode == "3D" and "2D") or (ZoneVisualMode == "2D" and "Invisível") or "3D"
+	ZoneModeBtn.Text = "Modo das Zonas: " .. ZoneVisualMode
+end)
+
+AutoSwagBtn.MouseButton1Click:Connect(function()
+	AutoSwagEnabled = not AutoSwagEnabled
+	ToggleBtn(AutoSwagBtn, AutoSwagEnabled, "Auto Swag")
+end)
+
+BallPredictBtn.MouseButton1Click:Connect(function()
+	BallPredictEnabled = not BallPredictEnabled
+	ToggleBtn(BallPredictBtn, BallPredictEnabled, "Ball Predict Visual")
+	if not BallPredictEnabled then PredictCircle.Parent = nil end
+end)
+
+ZoneSizeInput.FocusLost:Connect(function()
+	local num = tonumber(ZoneSizeInput.Text)
+	ReachBallSize = num and Vector3.new(num, 5, num) or Vector3.new(60, 5, 60)
+	if not num then ZoneSizeInput.Text = "60" end
+end)
+
+ReachSizeInput.FocusLost:Connect(function()
+	local num = tonumber(ReachSizeInput.Text)
+	ReachSize = num and Vector3.new(num, 5, num) or Vector3.new(15, 5, 15)
+	if not num then ReachSizeInput.Text = "15" end
+end)
+
+AnalogInterferenceInput.FocusLost:Connect(function()
+	local cleanedText = string.gsub(AnalogInterferenceInput.Text, "%%", "")
+	local num = tonumber(cleanedText)
+	if num then
+		AnalogInterference = math.clamp(num, 1, 100)
+		AnalogInterferenceInput.Text = tostring(AnalogInterference) .. "%"
+	else
+		AnalogInterferenceInput.Text = tostring(AnalogInterference) .. "%"
+	end
+end)
+
+StudsBallInput.FocusLost:Connect(function()
+	local num = tonumber(StudsBallInput.Text)
+	if num then
+		StudsBallDistance = math.max(0, num)
+		StudsBallInput.Text = tostring(StudsBallDistance)
+	else
+		StudsBallInput.Text = tostring(StudsBallDistance)
+	end
+end)
+
+local Colors = {
+	{Name = "Ciano", Color = Color3.fromRGB(0, 255, 255)},
+	{Name = "Verde", Color = Color3.fromRGB(0, 255, 0)},
+	{Name = "Rosa", Color = Color3.fromRGB(255, 0, 255)},
+	{Name = "Amarelo", Color = Color3.fromRGB(255, 255, 0)},
+	{Name = "Branco", Color = Color3.fromRGB(255, 255, 255)}
+}
+local ColorIndex = 1
+
+ColorBtn.MouseButton1Click:Connect(function()
+	ColorIndex = (ColorIndex % #Colors) + 1
+	ReachColor = Colors[ColorIndex].Color
+	ColorBtn.Text = "Cor Hitbox (" .. Colors[ColorIndex].Name .. ")"
+end)
